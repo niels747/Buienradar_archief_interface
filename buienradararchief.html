@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<link rel="icon" href="favicon.ico" type="image/x-icon" />
+	<title>Buienradararchief</title>
+
+	<style>
+		body {
+			margin: 0px;
+		}
+
+		#radar {
+			position: relative;
+			float: left;
+			width: 50%;
+			height: 100%;
+		}
+
+		.radarImage {
+			position: absolute;
+			height: 900px;
+			margin: 0px;
+		}
+
+		#UI {
+			font-size: 25px;
+			position: relative;
+			float: left;
+			width: 700px;
+			height: 620px;
+			border: 4px solid;
+			padding: 5px;
+			margin: 0px;
+		}
+
+		#timeSlider {
+			width: 87%;
+		}
+
+		#timeSlider::-webkit-slider-thumb {
+			-webkit-appearance: none;
+			border: none;
+			height: 36px;
+			width: 36px;
+			border-radius: 50%;
+			background: green;
+			margin-top: -8px;
+		}
+
+		#timeSlider::-webkit-slider-runnable-track {
+			width: 500px;
+			height: 20px;
+			background: #ddd;
+			border: none;
+			border-radius: 5px;
+		}
+
+
+		button {
+			background-color: #0dbc22;
+			/* light Green */
+			border: none;
+			color: white;
+			padding: 5px 10px;
+			margin-top: 6px;
+			text-align: center;
+			text-decoration: none;
+			display: inline-block;
+			font-size: 20px;
+		}
+
+		button:hover {
+			background-color: green;
+			color: white;
+		}
+
+		input[type="range"] {
+			-webkit-appearance: none;
+			/* Hides the slider so that custom slider can be made */
+			background: transparent;
+			/* Otherwise white in Chrome */
+			width: 300px;
+		}
+
+		input[type="range"]::-webkit-slider-runnable-track {
+			width: 500px;
+			height: 10px;
+			background: #ddd;
+			border: none;
+			border-radius: 5px;
+		}
+
+		input[type="range"]::-webkit-slider-thumb {
+			-webkit-appearance: none;
+			border: none;
+			height: 20px;
+			width: 20px;
+			border-radius: 50%;
+			background: green;
+			margin-top: -5px;
+		}
+
+		input[type="range"]:focus {
+			outline: none;
+		}
+
+		input[type="range"]:focus::-webkit-slider-runnable-track {
+			background: #ccc;
+		}
+
+		input[type="datetime-local"] {
+			font-size: 20px;
+		}
+
+		#loader {
+			margin-left: 10px;
+			position: absolute;
+			border: 5px solid lightgray;
+			border-radius: 50%;
+			border-top: 5px solid black;
+			width: 20px;
+			height: 20px;
+			animation: spin 0.6s linear infinite;
+		}
+
+		@keyframes spin {
+			0% {
+				transform: rotate(0deg);
+			}
+
+			100% {
+				transform: rotate(360deg);
+			}
+		}
+	</style>
+
+	<script>
+		var frameInterval;
+		var radarRunning = true;
+		var interval;
+		var radarImageTime = new Date(); // stores current date and time for radar image
+		var dateAndTime; // example: 201108181500
+		var currentDateAndTimeISO = new String(); // date and time at the start of the script
+		var step = 5; // step time in minutes
+		var radarImgObject = new Image();
+		var oldRadarImgObject = new Image();
+		var radarImgLink = new String();
+
+		var allImagesLoaded = false;
+		var savingToDisk = false;
+
+
+
+		function setup() {
+			radarImageTime.setMinutes(0);
+			radarImageTime.setHours(radarImageTime.getHours() - 48); // start playing 24 hours ago
+
+			radarImgObject = document.getElementById("radarImage");
+			oldRadarImgObject = document.getElementById("oldRadarImage");
+
+			oldRadarImgObject.style.visibility = "hidden";
+
+			currentDateAndTimeISO = radarImageTime.toISOString();
+			currentDateAndTimeISO = currentDateAndTimeISO.slice(0, 16); // only need the first 16 characters
+
+			document.getElementById("dateSelector").value = currentDateAndTimeISO;
+			radarImageTime = new Date(document.getElementById("dateSelector").value);
+
+			document.getElementById("speedSlider").value = 4;
+			document.getElementById("speedDisplay").value = document.getElementById("speedSlider").value;
+
+			frameInterval = 1000 / document.getElementById("speedSlider").value;
+
+			document.getElementById("stepSlider").value = step / 5;
+			document.getElementById("stepDisplay").value = step + " Minuten";
+
+
+			let urlParams = new URLSearchParams(window.location.search);
+			let initDatetime = urlParams.get('datetime');
+			if (initDatetime != null) {
+				document.getElementById("dateSelector").value = initDatetime;
+				readDateSelector();
+			}
+
+			let initLoopHours = urlParams.get('loop');
+			if (initLoopHours != null) {
+				readLoopHours(initLoopHours);
+			}
+
+			let initFps = urlParams.get('fps');
+			if (initFps != null) {
+				readSpeedSlider(initFps);
+			}
+
+			let initStep = urlParams.get('stap');
+			if (initStep != null) {
+				readStepSlider(initStep);
+			}
+
+			// ?datetime=2015-06-18T15:00&loop=10&fps=30&stap=1	
+
+			startPlaying(); // start loading
+		}
+
+		function toggleRun(playPause) // true = play   false = pause
+		{
+			let action = false;
+			if (playPause != null) { // if defined / implicit state given
+				action = playPause;
+			} else {
+				action = !radarRunning; // toggle
+			}
+
+			if (action == false) { // pause
+				clearInterval(interval);
+
+				var btnElement = document.getElementById("pauseButton");
+
+				btnElement.innerHTML = "&nbsp &#9654; &nbsp";
+				btnElement.style.backgroundColor = "red";
+				radarRunning = false;
+			} else { // play
+				startPlaying();
+				var btnElement = document.getElementById("pauseButton");
+				btnElement.innerHTML = "&nbsp&#9612&#9612";
+				btnElement.style.backgroundColor = "green";
+				radarRunning = true;
+			}
+		}
+
+		function loadImage() {
+			dateAndTime = radarImageTime.getFullYear();
+			dateAndTime += pad(radarImageTime.getMonth() + 1, 2);
+			dateAndTime += pad(radarImageTime.getDate(), 2);
+			dateAndTime += pad(radarImageTime.getHours(), 2);
+			dateAndTime += pad(radarImageTime.getMinutes(), 2);
+			radarImgLink = "https://image.buienradar.nl/2.0/archive/image/radarmaprainnl/" + dateAndTime;
+
+			console.log(radarImgLink);
+
+			if (savingToDisk) { // downloading
+				loadXHR(radarImgLink).then(function (blob) { downloadRadarImage(blob); });
+			} else { // displaying
+				radarImgObject.onload = displayImage; // run displayImage function when finished loading
+				radarImgObject.onerror = displayImage; // run displayImage function, even when loading failed
+				oldRadarImgObject.style.visibility = "visible";
+				radarImgObject.style.visibility = "hidden";
+				radarImgObject.src = radarImgLink; // start loading new image
+			}
+
+			const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+			document.getElementById("timeDisplay").innerHTML = radarImageTime.toLocaleDateString('nl-NL', options) + "  " + radarImageTime.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+		}
+
+
+		function downloadRadarImage(blob) {
+			download(dateAndTime + '.png', blob);
+
+			setTimeout(addMinutes, 200, step); // load next image after giving browser some time to download this one
+		}
+
+
+		function displayImage() {
+			radarImgObject.style.visibility = "visible"; // display new image
+			oldRadarImgObject.style.visibility = "hidden"; // hide old image
+
+			oldRadarImgObject.src = radarImgObject.src; // for when next image starts loading
+
+			if (!allImagesLoaded) {
+				addMinutes(step); // load next image
+			}
+		}
+
+		function setDateFromList() {
+			let value = document.getElementById("dates").value;
+			if (value != "") {
+				document.getElementById("dateSelector").value = value;
+				readDateSelector();
+			}
+		}
+
+		function readDateSelector(addSteps) {
+			radarImageTime = new Date(document.getElementById("dateSelector").value);
+
+			if (addSteps) {
+				radarImageTime.setMinutes(radarImageTime.getMinutes() + addSteps * 5);
+				document.getElementById("dateSelector").stepUp(addSteps);
+			}
+
+			let minutes = radarImageTime.getMinutes();
+			let corr = minutes % 5; // make sure time is valid for radarimage
+			if (corr != 0) {
+				radarImageTime.setMinutes(minutes - corr); // add minutes
+				let correctedTime = new Date(radarImageTime.getTime() - radarImageTime.getTimezoneOffset() * 1000 * 60)
+				document.getElementById("dateSelector").value = correctedTime.toISOString().slice(0, 16);
+			}
+
+			updateQueryString();
+			startLoading();
+		}
+
+		function readSpeedSlider(set) {
+			if (set) {
+				document.getElementById("speedSlider").value = set;
+			}
+
+			var sliderValue = document.getElementById("speedSlider").value;
+			frameInterval = 1000 / sliderValue;
+			if (radarRunning) {
+				startPlaying();
+			}
+			document.getElementById("speedDisplay").value = sliderValue;
+			updateQueryString();
+		}
+
+		function startPlaying() {
+			clearInterval(interval);
+			if (allImagesLoaded) {
+				interval = setInterval(function () {
+					addMinutes(step);
+				}, frameInterval);
+			} else {
+				loadImage(); // load first image
+			}
+		}
+
+		function startLoading() {
+			allImagesLoaded = false;
+			document.getElementById("loader").hidden = false;
+			clearInterval(interval);
+			radarImageTime = new Date(document.getElementById("dateSelector").value);
+			loadImage();
+		}
+
+		function readStepSlider(set) {
+			if (set) {
+				document.getElementById("stepSlider").value = set;
+			}
+			step = document.getElementById("stepSlider").value * 5;
+			document.getElementById("stepDisplay").value = step + " Minuten";
+			document.getElementById("timeSlider").step = step;
+			updateQueryString();
+			startLoading();
+		}
+
+		function addMinutes(changeAmount) {
+			var startTime = new Date(document.getElementById("dateSelector").value);
+
+			radarImageTime.setMinutes(radarImageTime.getMinutes() + changeAmount); // add minutes
+
+			if ((radarImageTime.getTime() - startTime.getTime()) / (1000 * 3600) > document.getElementById("loopHours").value) {
+				radarImageTime = new Date(startTime); // start over
+				if (allImagesLoaded == false) {
+					allImagesLoaded = true;
+					document.getElementById("loader").hidden = true;
+					toggleRun(false);
+				} else if (savingToDisk) {
+					toggleRun(false);
+					savingToDisk = false;
+					document.getElementById("loader").hidden = true;
+				}
+			} else if (radarImageTime.getTime() < startTime.getTime()) {
+				radarImageTime = new Date(startTime);
+				radarImageTime.setMinutes(radarImageTime.getMinutes() + document.getElementById("loopHours").value * 60); // add minutes
+			}
+
+			document.getElementById("timeSlider").value = (radarImageTime.getTime() - startTime.getTime()) / (1000 * 60);
+
+			loadImage();
+		}
+
+		function pad(n, width, z) {
+			z = z || "0";
+			n = n + "";
+			return n.length >= width ? n : new Array(width - n.length + 1).join(z) + n;
+		}
+
+		function readTimeSlider() {
+			toggleRun(false);// pause
+
+			var timeSlider = document.getElementById("timeSlider");
+			var startTime = new Date(document.getElementById("dateSelector").value).getTime();
+			radarImageTime = new Date(startTime + timeSlider.value * 1000 * 60);
+
+			loadImage();
+		}
+
+		function readLoopHours(set) {
+			if (set) {
+				document.getElementById("loopHours").value = set;
+			}
+			document.getElementById("timeSlider").max = document.getElementById("loopHours").value * 60;
+			updateQueryString();
+			startLoading();
+		}
+
+		function meteocielTimeStr(timeObj) {
+			let output = "&jour=" + timeObj.getDate();
+			output += "&mois=" + (timeObj.getMonth() + 1);
+			output += "&annee=" + timeObj.getFullYear();
+			output += "&heure=" + timeObj.getHours();
+			return output;
+		}
+
+		function linkTemperatureMap() {
+			let link = "https://www.meteociel.fr/observations-meteo/temperatures.php?archive=1";
+			link += meteocielTimeStr(radarImageTime);
+			window.open(link);
+		}
+
+		function linkDewpointMap() {
+			let link = "https://www.meteociel.fr/observations-meteo/point-de-rosee.php?archive=1";
+			link += meteocielTimeStr(radarImageTime);
+			window.open(link);
+		}
+
+		function linkWindMap() {
+			let link = "https://www.meteociel.fr/observations-meteo/vent.php?archive=1";
+			link += meteocielTimeStr(radarImageTime);
+			window.open(link);
+		}
+
+		function linkSkewTMap() {
+			let link = "https://www.meteociel.fr/observations-meteo/sondage.php?archive=1";
+			let correctedTime = new Date(radarImageTime);
+			let hour = radarImageTime.getHours();
+
+			if (hour < 4)
+				correctedTime.setHours(0);
+			else if (hour < 10)
+				correctedTime.setHours(6);
+			else if (hour < 16)
+				correctedTime.setHours(12);
+			else if (hour < 22)
+				correctedTime.setHours(18);
+
+			link += meteocielTimeStr(correctedTime);
+			window.open(link);
+		}
+
+		function linkCloudMap() {
+			let link = "https://www.meteociel.fr/observations-meteo/satellite.php?mode=archives-image-visible-france";
+			link += meteocielTimeStr(radarImageTime);
+			window.open(link);
+		}
+
+
+		function linkPrecipMap() {
+			let link = "https://cdn.knmi.nl/knmi/map/page/klimatologie/geografische-overzichten/prec/prec";
+
+			link += getDateForKNMI();
+
+			link += ".png";
+
+			window.open(link);
+		}
+
+		function linkCumulaMap() {
+			let link = "https://cdn.knmi.nl/knmi/map/page/klimatologie/geografische-overzichten/radar/radar_"; // 20181231.png
+
+			link += getDateForKNMI();
+
+			link += ".png";
+
+			window.open(link);
+		}
+
+		function getDateForKNMI() {
+			let correctedTime = new Date(radarImageTime);
+
+			if (correctedTime.getHours() >= 8) {
+				correctedTime.setHours(correctedTime.getHours() + 24); // add one day because archive dates are wierd
+			}
+
+			let date = correctedTime.getFullYear();
+			date += pad(correctedTime.getMonth() + 1, 2);
+			date += pad(correctedTime.getDate(), 2);
+			return date;
+		}
+
+		function linkEarthMap() {
+			let link = "https://earth.nullschool.net/#";
+
+			link += radarImageTime.getFullYear();
+			link += "/";
+			link += (radarImageTime.getMonth() + 1);
+			link += "/";
+			link += radarImageTime.getDate();
+			link += "/";
+			link += pad(radarImageTime.getHours(), 2);
+			link += "00Z";
+
+			link += "/wind/isobaric/850hPa/overlay=temp/orthographic=3.12,51.49,1330/loc=5.340,51.734";
+
+			window.open(link);
+		}
+
+
+
+		function setImageFiltering() {
+			let linear = document.getElementById("imageFiltering").checked;
+			let mode;
+			if (linear)
+				mode = "auto";
+			else
+				mode = "pixelated";
+
+			document.getElementById("radarImage").style.imageRendering = mode;
+			document.getElementById("oldRadarImage").style.imageRendering = mode;
+		}
+
+		function genQueryString() {
+			let queryString = "?datetime=";
+			queryString += document.getElementById("dateSelector").value;
+			queryString += "&loop=";
+			queryString += document.getElementById("loopHours").value;
+			queryString += "&fps=";
+			queryString += document.getElementById("speedSlider").value;
+			queryString += "&stap=";
+			queryString += document.getElementById("stepSlider").value;
+			return queryString;
+		}
+
+		function updateQueryString() {
+			window.history.pushState("state", "", window.location.pathname + genQueryString());
+		}
+
+		function copyLink() {
+			let link = /*window.location.hostname*/ "nielsdaemen.nl" + window.location.pathname + genQueryString();
+
+			const el = document.createElement('textarea');
+			el.value = link;
+			document.body.appendChild(el);
+			el.select();
+			el.setSelectionRange(0, 99999); /* For mobile devices */
+			document.execCommand("copy");
+			document.body.removeChild(el);
+		}
+
+		function loadXHR(url) {
+			return new Promise(function (resolve, reject) {
+				try {
+					var xhr = new XMLHttpRequest();
+					xhr.open("GET", url);
+					xhr.responseType = "blob";
+					xhr.onerror = function () { reject("Network error.") };
+					xhr.onload = function () {
+						if (xhr.status === 200) { resolve(xhr.response) }
+						else { reject("Loading error:" + xhr.statusText) }
+					};
+					xhr.send();
+				}
+				catch (err) { reject(err.message) }
+			});
+		}
+
+		function download(filename, data) {
+			var url = URL.createObjectURL(data);
+			const element = document.createElement("a");
+			element.setAttribute("href", url);
+			element.setAttribute("download", filename);
+			element.style.display = "none";
+			document.body.appendChild(element);
+			element.click();
+			document.body.removeChild(element);
+		}
+
+		function saveImagesToDisk() {
+			if (confirm("Wil je alle beelden in het geselecteerde tijdsbestek downloaden?\nHet is aanbevolen om eerst je downloads map leeg te maken!")) {
+				toggleRun(false);
+				savingToDisk = true;
+				document.getElementById("loader").hidden = false;
+				radarImageTime = new Date(document.getElementById("dateSelector").value);
+				loadImage();
+			}
+		}
+
+	</script>
+</head>
+<meta charset="utf-8" />
+
+<body onload="setup()">
+	<div id="UI">
+
+		<p>
+			<button onclick="readDateSelector(-288)">-1 Dag</button>
+			<button onclick="readDateSelector(-12)">-1 Uur</button>
+			<button onclick="readDateSelector(-1)">-5 Min</button>
+			<button onclick="toggleRun()" id="pauseButton">&nbsp&#9612&#9612</button>
+			<button onclick="readDateSelector(1)">+5 Min</button>
+			<button onclick="readDateSelector(12)">+1 Uur</button>
+			<button onclick="readDateSelector(288)">+1 Dag</button>
+		</p>
+
+		<p>
+			<label>Start</label>
+			<input id="dateSelector" type="datetime-local" onchange="readDateSelector()" min="2008-06-18T11:25"
+				step="300" />
+			<select id="dates" onchange="setDateFromList()">
+				<option value="">Voorbeeld:</option>
+				<option value="2020-08-12T14:00">Roterende supercell Duitsland</option>
+				<option value="2018-05-29T12:00">Noodweer op veel plekken</option>
+				<option value="2018-05-16T16:00">Tornado Viersen</option>
+				<option value="2016-06-23T18:00">Grote hagel Brabant</option>
+				<option value="2014-06-08T07:00">Supercells 2014</option>
+				<option value="2011-08-18T15:00">Noodweer Pukkelpop 2011</option>
+			</select>
+		</p>
+
+
+		<p>
+			<label for="loopHours">Loop +</label>
+			<input type="number" id="loopHours" name="quantity" value="6" min="1" max="99" onchange="readLoopHours()">
+			<label>uur</label>
+			<b id="loader"></b>
+			<t>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</t>
+			<button onclick="copyLink()">Kopieer link &#x1f4cb;</button>
+			<t>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</t>
+			<button onclick="saveImagesToDisk()">&nbsp;&DownArrowBar;&nbsp;</button>
+		</p>
+
+		<p>
+			<label>Beelden per seconde</label>
+			<input type="range" id="speedSlider" min="1" max="30" oninput="readSpeedSlider()" />
+			<output type="text" id="speedDisplay" />
+		</p>
+
+		<p>
+			<label>Stap lengte</label>
+			<input id="stepSlider" type="range" min="1" max="12" oninput="readStepSlider()" />
+			<output type="text" id="stepDisplay" />
+		</p>
+
+		<p>
+			<button onclick="toggleRun(false); addMinutes(-step);">&#5176;</button> <input type="range" id="timeSlider"
+				step="5" min="0" max="360" oninput="readTimeSlider()"> <button
+				onclick="toggleRun(false); addMinutes(step);">&#5171;</button>
+		</p>
+
+		<p>
+			<output id="timeDisplay"></output>
+			<label>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Bilineair</label>
+			<input type="checkbox" id="imageFiltering" checked="true" onchange="setImageFiltering()">
+		</p>
+
+		<button onclick="linkPrecipMap()">Neerslag</button>
+		<button onclick="linkTemperatureMap()">Temperatuur</button>
+		<button onclick="linkDewpointMap()">Dauwpunt</button>
+		<button onclick="linkWindMap()">Wind</button>
+		<button onclick="linkSkewTMap()">Skew-T</button>
+		<button onclick="linkCloudMap()">Wolken</button>
+
+		<button onclick="linkEarthMap()">Earth</button>
+		<button onclick="linkCumulaMap()">Cumulatief</button>
+		<p></p>
+		<i style="position:absolute; bottom:0;">Buienradar Archief Interface - door Niels Daemen</i>
+	</div>
+
+
+	<div id="radar">
+		<img id="radarImage" class="radarImage" alt="Radarbeeld niet beschikbaar" />
+		<img id="oldRadarImage" class="radarImage" alt="Radarbeeld niet beschikbaar" />
+	</div>
+</body>
+
+</html>
